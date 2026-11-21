@@ -71,6 +71,12 @@ func (r *statusRecorder) WriteHeader(code int) {
 // requests currently in flight on the server.
 func logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Health checks are frequent and uninteresting: keep them out of the
+		// logs and out of the inflight metric.
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		start := time.Now()
 		n := inflight.Add(1)
 		inflightMetric.Add(context.Background(), 1)
@@ -114,6 +120,22 @@ func exportCSV(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": id, "status": jobs.StatusPending})
 }
 
+// healthz reports whether the server can do its job: Postgres reachable and
+// the RabbitMQ connection open.
+func healthz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := store.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "postgres: " + err.Error()})
+		return
+	}
+	if !queue.Healthy() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "rabbitmq: connection closed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // pollJob returns the current status of a job.
 func pollJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -153,6 +175,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /export-csv", exportCSV)
 	mux.HandleFunc("GET /jobs/{id}", pollJob)
+	mux.HandleFunc("GET /healthz", healthz)
 
 	port := os.Getenv("PORT")
 	if port == "" {

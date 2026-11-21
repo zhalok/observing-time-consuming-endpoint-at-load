@@ -139,6 +139,9 @@ func NewStore(url string) (*Store, error) {
 	return &Store{pool: pool}, nil
 }
 
+// Ping checks that the database is reachable.
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 func (s *Store) Create(ctx context.Context) (string, error) {
 	ctx, end := startSpan(ctx, "db insert job", trace.SpanKindClient, dbAttrs...)
 	var id string
@@ -203,6 +206,9 @@ func NewQueue(url string, publishers int) (*Queue, error) {
 	}
 	return q, nil
 }
+
+// Healthy reports whether the RabbitMQ connection is still open.
+func (q *Queue) Healthy() bool { return !q.conn.IsClosed() }
 
 func (q *Queue) declare(ch *amqp.Channel) error {
 	_, err := ch.QueueDeclare(queueName, true, false, false, false, nil)

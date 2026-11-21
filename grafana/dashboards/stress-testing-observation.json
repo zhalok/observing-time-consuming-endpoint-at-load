@@ -4,22 +4,21 @@
   "metadata": {
     "name": "ad9jcn5",
     "namespace": "default",
-    "uid": "006aeaa8-0761-40ff-b985-a45a1f3e93c2",
-    "resourceVersion": "1795262991579008",
-    "generation": 8,
-    "creationTimestamp": "2026-11-21T08:28:12Z",
+    "uid": "7d5fb1dd-3432-4938-95e2-5cefe0fce2ac",
+    "resourceVersion": "1795264120685014",
+    "generation": 1,
+    "creationTimestamp": "2026-11-21T12:28:40Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "2861850927624192"
+      "grafana.app/deprecatedInternalID": "2922368394379264"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
       "grafana.app/managedBy": "classic-file-provisioning",
       "grafana.app/managerId": "cgroup-metrics",
-      "grafana.app/sourceChecksum": "c75ea909bba24eaf16e80eed729ad01c",
+      "grafana.app/sourceChecksum": "7dab2ebab063a85998104660a87d0846",
       "grafana.app/sourcePath": "/etc/grafana/dashboards/stress-testing-observation.json",
-      "grafana.app/sourceTimestamp": "1795262986000",
+      "grafana.app/sourceTimestamp": "1795263076000",
       "grafana.app/updatedBy": "access-policy:service",
-      "grafana.app/updatedTimestamp": "2026-11-21T12:09:51Z",
       "grafana.app/folder": ""
     }
   },
@@ -309,50 +308,6 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum(rate(client_requests_failed_total{ }[$__rate_interval]))",
-                        "instant": false,
-                        "legendFormat": "failed processing requests",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "A"
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "sum(rate(client_requests_succeeded_total{ }[$__rate_interval]))",
-                        "instant": false,
-                        "legendFormat": "successfully processed requests",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "B"
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
                         "expr": "sum(rate(client_submissions_succeeded_total{ }[$__rate_interval]))",
                         "instant": false,
                         "legendFormat": "request submission successful",
@@ -469,7 +424,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "failed requests",
+                      "options": "request submission failed",
                       "scope": "series"
                     },
                     "properties": [
@@ -485,7 +440,194 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "successful requests",
+                      "options": "request submission successful",
+                      "scope": "series"
+                    },
+                    "properties": [
+                      {
+                        "id": "color",
+                        "value": {
+                          "fixedColor": "green",
+                          "mode": "fixed"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "annotations": {
+                  "multiLane": true
+                },
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "hideZeros": false,
+                  "mode": "single",
+                  "sort": "none"
+                }
+              }
+            },
+            "version": "13.3.1"
+          }
+        }
+      },
+      "panel-6": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(rate(client_requests_failed_total{ }[$__rate_interval]))",
+                        "instant": false,
+                        "legendFormat": "failed processing requests",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(rate(client_requests_succeeded_total{ }[$__rate_interval]))",
+                        "instant": false,
+                        "legendFormat": "successfully processed requests",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "B"
+                  }
+                }
+              ],
+              "queryOptions": {
+                "maxDataPoints": 500
+              },
+              "transformations": []
+            }
+          },
+          "description": "Peak in-flight requests in a round\n\n**Type:** *gauge*\n\n",
+          "id": 6,
+          "links": [],
+          "title": "Success and Failure Stats",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "barWidthFactor": 0.6,
+                    "drawStyle": "line",
+                    "fillOpacity": 9,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "showValues": false,
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "mappings": [
+                    {
+                      "options": {
+                        "failed requestes": {
+                          "color": "red",
+                          "index": 0
+                        }
+                      },
+                      "type": "value"
+                    }
+                  ],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": 0
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  "unit": "none"
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "failed processing requests",
+                      "scope": "series"
+                    },
+                    "properties": [
+                      {
+                        "id": "color",
+                        "value": {
+                          "fixedColor": "red",
+                          "mode": "fixed"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "successfully processed requests",
                       "scope": "series"
                     },
                     "properties": [
@@ -533,6 +675,15 @@
               "element": {
                 "kind": "ElementReference",
                 "name": "panel-5"
+              }
+            }
+          },
+          {
+            "kind": "AutoGridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-6"
               }
             }
           },
