@@ -4,21 +4,22 @@
   "metadata": {
     "name": "ad9jcn5",
     "namespace": "default",
-    "uid": "7d5fb1dd-3432-4938-95e2-5cefe0fce2ac",
-    "resourceVersion": "1795264120685014",
-    "generation": 1,
-    "creationTimestamp": "2026-11-21T12:28:40Z",
+    "uid": "63beeb3f-1ab7-4555-87f4-f319566598f9",
+    "resourceVersion": "1795266295610010",
+    "generation": 3,
+    "creationTimestamp": "2026-11-21T13:01:33Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "2922368394379264"
+      "grafana.app/deprecatedInternalID": "2930641454395392"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
       "grafana.app/managedBy": "classic-file-provisioning",
       "grafana.app/managerId": "cgroup-metrics",
-      "grafana.app/sourceChecksum": "7dab2ebab063a85998104660a87d0846",
+      "grafana.app/sourceChecksum": "0b00ae820d17ecb053e752d6b594a8c6",
       "grafana.app/sourcePath": "/etc/grafana/dashboards/stress-testing-observation.json",
-      "grafana.app/sourceTimestamp": "1795263076000",
+      "grafana.app/sourceTimestamp": "1795266290000",
       "grafana.app/updatedBy": "access-policy:service",
+      "grafana.app/updatedTimestamp": "2026-11-21T13:04:55Z",
       "grafana.app/folder": ""
     }
   },
@@ -47,6 +48,172 @@
     "cursorSync": "Off",
     "editable": true,
     "elements": {
+      "panel-10": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "postgres"
+                      },
+                      "group": "grafana-postgresql-datasource",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "format": "time_series",
+                        "rawQuery": true,
+                        "rawSql": "SELECT\n  $__timeGroupAlias(updated_at, $__interval),\n  count(*) FILTER (WHERE status = 'succeeded') AS succeeded,\n  count(*) FILTER (WHERE status = 'failed') AS failed\nFROM jobs\nWHERE $__timeFilter(updated_at) AND status IN ('succeeded', 'failed')\nGROUP BY 1\nORDER BY 1",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "Jobs that reached a final status in each interval (by updated_at).",
+          "id": 10,
+          "links": [],
+          "title": "Jobs completed per interval",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "continuous-BlYlRd",
+                    "seriesBy": "last"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "barWidthFactor": 0.6,
+                    "drawStyle": "line",
+                    "fillOpacity": 19,
+                    "gradientMode": "scheme",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "smooth",
+                    "lineStyle": {
+                      "fill": "solid"
+                    },
+                    "lineWidth": 2,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "never",
+                    "showValues": false,
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": 0
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "succeeded"
+                    },
+                    "properties": [
+                      {
+                        "id": "color",
+                        "value": {
+                          "fixedColor": "green",
+                          "mode": "fixed"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "failed"
+                    },
+                    "properties": [
+                      {
+                        "id": "color",
+                        "value": {
+                          "fixedColor": "red",
+                          "mode": "fixed"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "hideZeros": false,
+                  "mode": "multi",
+                  "sort": "none"
+                }
+              }
+            },
+            "version": "13.3.1"
+          }
+        }
+      },
       "panel-2": {
         "kind": "Panel",
         "spec": {
@@ -476,7 +643,7 @@
           }
         }
       },
-      "panel-6": {
+      "panel-7": {
         "kind": "Panel",
         "spec": {
           "data": {
@@ -494,37 +661,13 @@
                       "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "editorMode": "code",
-                        "expr": "sum(rate(client_requests_failed_total{ }[$__rate_interval]))",
-                        "instant": false,
-                        "legendFormat": "failed processing requests",
-                        "range": true
+                        "expr": "avg(rabbitmq_channel_consumers{ })",
+                        "fromExploreMetrics": false,
+                        "legendFormat": "avg"
                       },
                       "version": "v0"
                     },
-                    "refId": "A"
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "sum(rate(client_requests_succeeded_total{ }[$__rate_interval]))",
-                        "instant": false,
-                        "legendFormat": "successfully processed requests",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "B"
+                    "refId": "rabbitmq_channel_consumers-avg"
                   }
                 }
               ],
@@ -534,10 +677,10 @@
               "transformations": []
             }
           },
-          "description": "Peak in-flight requests in a round\n\n**Type:** *gauge*\n\n",
-          "id": 6,
+          "description": "Consumers on a channel\n\n**Type:** *gauge*\n\n",
+          "id": 7,
           "links": [],
-          "title": "Success and Failure Stats",
+          "title": "rabbitmq_channel_consumers",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -581,17 +724,6 @@
                       "mode": "off"
                     }
                   },
-                  "mappings": [
-                    {
-                      "options": {
-                        "failed requestes": {
-                          "color": "red",
-                          "index": 0
-                        }
-                      },
-                      "type": "value"
-                    }
-                  ],
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -607,40 +739,245 @@
                   },
                   "unit": "none"
                 },
-                "overrides": [
-                  {
-                    "matcher": {
-                      "id": "byName",
-                      "options": "failed processing requests",
-                      "scope": "series"
+                "overrides": []
+              },
+              "options": {
+                "annotations": {
+                  "multiLane": true
+                },
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "hideZeros": false,
+                  "mode": "single",
+                  "sort": "none"
+                }
+              }
+            },
+            "version": "13.3.1"
+          }
+        }
+      },
+      "panel-8": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "expr": "avg(rabbitmq_queue_messages{ })",
+                        "fromExploreMetrics": false,
+                        "legendFormat": "avg"
+                      },
+                      "version": "v0"
                     },
-                    "properties": [
+                    "refId": "rabbitmq_queue_messages-avg"
+                  }
+                }
+              ],
+              "queryOptions": {
+                "maxDataPoints": 500
+              },
+              "transformations": []
+            }
+          },
+          "description": "Sum of ready and unacknowledged messages - total queue depth\n\n**Type:** *gauge*\n\n",
+          "id": 8,
+          "links": [],
+          "title": "rabbitmq_queue_messages",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "barWidthFactor": 0.6,
+                    "drawStyle": "line",
+                    "fillOpacity": 9,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "showValues": false,
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
                       {
-                        "id": "color",
-                        "value": {
-                          "fixedColor": "red",
-                          "mode": "fixed"
-                        }
+                        "color": "green",
+                        "value": 0
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
                       }
                     ]
                   },
-                  {
-                    "matcher": {
-                      "id": "byName",
-                      "options": "successfully processed requests",
-                      "scope": "series"
+                  "unit": "none"
+                },
+                "overrides": []
+              },
+              "options": {
+                "annotations": {
+                  "multiLane": true
+                },
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "hideZeros": false,
+                  "mode": "single",
+                  "sort": "none"
+                }
+              }
+            },
+            "version": "13.3.1"
+          }
+        }
+      },
+      "panel-9": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "expr": "sum(rate(cgroup_cpu_usage_seconds_total{ container_name=\"worker\"}[$__rate_interval]))",
+                        "fromExploreMetrics": false,
+                        "legendFormat": "sum(rate)"
+                      },
+                      "version": "v0"
                     },
-                    "properties": [
+                    "refId": "cgroup_cpu_usage_seconds_total-sum(rate)"
+                  }
+                }
+              ],
+              "queryOptions": {
+                "maxDataPoints": 500
+              },
+              "transformations": []
+            }
+          },
+          "description": "Cumulative CPU time consumed by the container\n\n**Type:** *counter*\n\n",
+          "id": 9,
+          "links": [],
+          "title": "Worker CPU usage",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "barWidthFactor": 0.6,
+                    "drawStyle": "line",
+                    "fillOpacity": 9,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "showValues": false,
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
                       {
-                        "id": "color",
-                        "value": {
-                          "fixedColor": "green",
-                          "mode": "fixed"
-                        }
+                        "color": "green",
+                        "value": 0
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
                       }
                     ]
-                  }
-                ]
+                  },
+                  "unit": "none"
+                },
+                "overrides": []
               },
               "options": {
                 "annotations": {
@@ -683,7 +1020,7 @@
             "spec": {
               "element": {
                 "kind": "ElementReference",
-                "name": "panel-6"
+                "name": "panel-10"
               }
             }
           },
@@ -702,6 +1039,33 @@
               "element": {
                 "kind": "ElementReference",
                 "name": "panel-2"
+              }
+            }
+          },
+          {
+            "kind": "AutoGridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-7"
+              }
+            }
+          },
+          {
+            "kind": "AutoGridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-8"
+              }
+            }
+          },
+          {
+            "kind": "AutoGridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-9"
               }
             }
           }

@@ -2,17 +2,14 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-// Submit endpoint: creates a job and returns its id.
+// Submit endpoint: creates a job and returns its id. Job completion/failure
+// stats are not measured here: the server reads them from the database.
 const URL_ = process.env.SERVER_URL || "http://localhost:8080/export-csv";
-// Poll endpoint base: GET {JOBS_URL}/{job_id} returns the job status.
-const JOBS_URL = process.env.JOBS_URL || `${new URL(URL_).origin}/jobs`;
 const TOTAL = Number(process.env.TOTAL_REQUESTS || 10000);
 const MAX_ITERATIONS = Number(process.env.MAX_ITERATIONS || 10);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS || 60000);
-// Pause between polling sweeps, so we do not hammer the server back-to-back.
-const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 1000);
-// A job still not succeeded after this many polls is counted as a failed request.
-const MAX_POLLS = Number(process.env.MAX_POLLS || 60);
+// Pause between bursts (submission is fast, so rounds would otherwise run back to back).
+const ROUND_INTERVAL_MS = Number(process.env.ROUND_INTERVAL_MS || 1000);
 const METRICS_FILE = process.env.METRICS_FILE || "/metrics/client.prom";
 const SAMPLE_MS = Number(process.env.SAMPLE_MS || 1000);
 
@@ -22,15 +19,11 @@ let inflight = 0;
 let peakInflight = 0;
 let roundsCompleted = 0;
 
-// Updated the moment each request completes. Cumulative across rounds
-// (Prometheus counters must never decrease).
-// A "request" is a job from submission to completion:
-//   sent      = job submitted
-//   succeeded = job observed as succeeded by polling (not merely submitted)
-//   failed    = submission failed, or the job had not succeeded after MAX_POLLS polls
+// Cumulative across rounds (Prometheus counters must never decrease).
+//   sent      = submission requests sent
+//   succeeded = submission returned a job id (exported as client_submissions_succeeded_total)
+//   failed    = submission failed, no job was created (exported as client_submissions_failed_total)
 const totals = { sent: 0, succeeded: 0, failed: 0 };
-const submitTotals = { succeeded: 0, failed: 0 }; // submission step only (job id returned or not)
-const pollTotals = { sent: 0, failed: 0 }; // status polls (a failed poll is retried)
 const errorTotals = {};
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -73,13 +66,6 @@ async function submit() {
   return body.job_id;
 }
 
-// API call: fetch a job's current status ("pending", "processing",
-// "succeeded"). Rejects if the poll itself failed.
-async function poll(id) {
-  const body = await getJSON(`${JOBS_URL}/${id}`);
-  return body.status;
-}
-
 // The file is an append-only log in Prometheus exposition syntax
 // (`name{labels} value ts_ms`). Each snapshot adds one point per series; the
 // reader groups lines by metric family before serving them.
@@ -88,32 +74,20 @@ function append(lines) {
   fs.appendFileSync(METRICS_FILE, lines.join("\n") + "\n");
 }
 
-// Snapshot of the live in-memory counters, taken on a timer.
+// Snapshot of the in-memory counters, taken on a timer.
 function sample() {
   const ts = ` ${Date.now()}`;
   append([
-    "# HELP client_requests_sent_total Requests (jobs) submitted by the client",
+    "# HELP client_requests_sent_total Job submissions sent by the client",
     "# TYPE client_requests_sent_total counter",
     `client_requests_sent_total ${totals.sent}${ts}`,
-    "# HELP client_requests_succeeded_total Requests whose job completed successfully",
-    "# TYPE client_requests_succeeded_total counter",
-    `client_requests_succeeded_total ${totals.succeeded}${ts}`,
-    "# HELP client_requests_failed_total Requests whose submission failed",
-    "# TYPE client_requests_failed_total counter",
-    `client_requests_failed_total ${totals.failed}${ts}`,
-    "# HELP client_submissions_succeeded_total Job submissions that returned a job id",
+    "# HELP client_submissions_succeeded_total Job submissions that returned a job id (sync request succeeded)",
     "# TYPE client_submissions_succeeded_total counter",
-    `client_submissions_succeeded_total ${submitTotals.succeeded}${ts}`,
-    "# HELP client_submissions_failed_total Job submissions that failed",
+    `client_submissions_succeeded_total ${totals.succeeded}${ts}`,
+    "# HELP client_submissions_failed_total Job submissions that failed (sync request failed)",
     "# TYPE client_submissions_failed_total counter",
-    `client_submissions_failed_total ${submitTotals.failed}${ts}`,
-    "# HELP client_poll_requests_sent_total Job status polls sent",
-    "# TYPE client_poll_requests_sent_total counter",
-    `client_poll_requests_sent_total ${pollTotals.sent}${ts}`,
-    "# HELP client_poll_requests_failed_total Job status polls that failed",
-    "# TYPE client_poll_requests_failed_total counter",
-    `client_poll_requests_failed_total ${pollTotals.failed}${ts}`,
-    "# HELP client_request_errors_total Failed requests (submit and poll) by error",
+    `client_submissions_failed_total ${totals.failed}${ts}`,
+    "# HELP client_request_errors_total Failed submissions by error",
     "# TYPE client_request_errors_total counter",
     ...Object.entries(errorTotals).map(
       ([k, v]) => `client_request_errors_total{error=${JSON.stringify(k)}} ${v}${ts}`
@@ -127,7 +101,7 @@ function sample() {
 function sampleRoundEnd(durationSec) {
   const ts = ` ${Date.now()}`;
   append([
-    "# HELP client_round_duration_seconds Duration of a round (submit burst until all jobs succeeded)",
+    "# HELP client_round_duration_seconds Duration of a round's submission burst",
     "# TYPE client_round_duration_seconds gauge",
     `client_round_duration_seconds ${durationSec}${ts}`,
   ]);
@@ -152,82 +126,34 @@ async function main() {
   for (let round = 1; !stopped && round <= MAX_ITERATIONS; round++) {
     const start = Date.now();
     peakInflight = 0;
-    const succeededBefore = totals.succeeded;
 
-    // 1. Burst: submit TOTAL jobs at once and wait for all of them to settle.
+    // Burst: submit TOTAL jobs at once and wait for all of them to settle.
     const submitted = await Promise.allSettled(Array.from({ length: TOTAL }, submit));
 
     // Walk through the results and update the stats. "fulfilled" is
-    // Promise.allSettled's state: the submission returned a job id. Rejected
-    // ones failed to submit, so there is no job to poll.
+    // Promise.allSettled's state: the submission returned a job id.
     totals.sent += TOTAL;
-    const ids = [];
+    let ok = 0;
     for (const r of submitted) {
       if (r.status === "fulfilled") {
-        submitTotals.succeeded++;
-        ids.push(r.value);
+        totals.succeeded++;
+        ok++;
       } else {
-        submitTotals.failed++;
+        totals.failed++;
         countError(r.reason);
       }
-    }
-    const submitSec = (Date.now() - start) / 1000;
-    console.log(`[round ${round}] submitted ${ids.length}/${TOTAL} jobs in ${submitSec.toFixed(1)}s, polling...`);
-
-    // 2. Poll all pending jobs concurrently, drop the completed ones, repeat
-    //    for the rest until every job has succeeded.
-    //    A job that has used up MAX_POLLS without succeeding is marked failed.
-    let pending = ids.map((id) => ({ id, polls: 0 }));
-    let sweeps = 0;
-    let timedOut = 0;
-    let jobFailed = 0;
-    while (pending.length && !stopped) {
-      sweeps++;
-      const polled = await Promise.allSettled(pending.map((job) => poll(job.id)));
-      pollTotals.sent += pending.length;
-
-      const next = [];
-      polled.forEach((r, i) => {
-        const job = pending[i];
-        if (r.status === "fulfilled" && r.value === "succeeded") {
-          totals.succeeded++;
-          return; // done, drop it
-        }
-        if (r.status === "fulfilled" && r.value === "failed") {
-          // The server reports the job as failed: final, so no more polling.
-          jobFailed++;
-          totals.failed++;
-          countError(new Error("job_failed"));
-          return; // done, drop it
-        }
-        if (r.status === "rejected") {
-          // A failed poll just leaves the job pending for the next sweep.
-          pollTotals.failed++;
-          countError(r.reason);
-        }
-        job.polls++;
-        if (job.polls >= MAX_POLLS) {
-          timedOut++;
-          totals.failed++;
-          countError(new Error("max_polls_exceeded"));
-        } else {
-          next.push(job);
-        }
-      });
-      pending = next;
-      if (pending.length) await sleep(POLL_INTERVAL_MS);
     }
 
     const durationSec = (Date.now() - start) / 1000;
     roundsCompleted = round;
-    sample(); // exact final point for the round
+    sample(); // exact point for the round
     sampleRoundEnd(durationSec);
 
     console.log(
-      `[round ${round}] submitted=${ids.length} submitFailed=${TOTAL - ids.length} ` +
-        `jobsSucceeded=${totals.succeeded - succeededBefore} timedOut=${timedOut} jobFailed=${jobFailed} stillPending=${pending.length} ` +
-        `sweeps=${sweeps} peakInflight=${peakInflight} time=${durationSec.toFixed(1)}s`
+      `[round ${round}] submitted=${ok} failed=${TOTAL - ok} peakInflight=${peakInflight} time=${durationSec.toFixed(1)}s`
     );
+
+    if (!stopped && round < MAX_ITERATIONS) await sleep(ROUND_INTERVAL_MS);
   }
 }
 

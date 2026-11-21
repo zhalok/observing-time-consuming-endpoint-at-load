@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"regexp"
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
@@ -66,7 +64,8 @@ const (
 	queueName = "export_jobs"
 )
 
-var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+// Statuses lists every job status, so metrics can report zero for empty ones.
+var Statuses = []string{StatusPending, StatusProcessing, StatusSucceeded, StatusFailed}
 
 // EnvInt reads an int from the environment, falling back to def.
 func EnvInt(key string, def int) int {
@@ -142,6 +141,25 @@ func NewStore(url string) (*Store, error) {
 // Ping checks that the database is reachable.
 func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
+// CountByStatus returns how many jobs are in each status.
+func (s *Store) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.pool.Query(ctx, `SELECT status, count(*) FROM jobs GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int64{}
+	for rows.Next() {
+		var status string
+		var n int64
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, err
+		}
+		counts[status] = n
+	}
+	return counts, rows.Err()
+}
+
 func (s *Store) Create(ctx context.Context) (string, error) {
 	ctx, end := startSpan(ctx, "db insert job", trace.SpanKindClient, dbAttrs...)
 	var id string
@@ -158,18 +176,6 @@ func (s *Store) SetStatus(ctx context.Context, id, status string) error {
 		`UPDATE jobs SET status = $2, updated_at = now() WHERE id = $1::uuid`, id, status)
 	end(err)
 	return err
-}
-
-// Get returns the job status; found is false if there is no such job.
-func (s *Store) Get(ctx context.Context, id string) (status string, found bool, err error) {
-	if !uuidRe.MatchString(id) {
-		return "", false, nil
-	}
-	err = s.pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id = $1::uuid`, id).Scan(&status)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
-	}
-	return status, err == nil, err
 }
 
 // ---- RabbitMQ ----

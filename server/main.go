@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -55,6 +56,31 @@ func initMetrics() {
 		m.Handle("/metrics", promhttp.Handler())
 		log.Fatal(http.ListenAndServe(":"+metricsPort, m))
 	}()
+}
+
+// registerJobMetrics exposes the number of jobs per status, read straight from
+// Postgres each time Prometheus scrapes. This is where job completion/failure
+// stats come from, so the client does not need to poll for them.
+func registerJobMetrics(store *jobs.Store) {
+	_, err := otel.Meter("server").Int64ObservableGauge(
+		"server_jobs",
+		metric.WithDescription("Number of jobs in each status, read from the database"),
+		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			counts, err := store.CountByStatus(ctx)
+			if err != nil {
+				return err
+			}
+			for _, status := range jobs.Statuses {
+				o.Observe(counts[status], metric.WithAttributes(attribute.String("status", status)))
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 type statusRecorder struct {
@@ -136,21 +162,6 @@ func healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// pollJob returns the current status of a job.
-func pollJob(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	status, found, err := store.Get(r.Context(), id)
-	switch {
-	case err != nil:
-		log.Printf("get job %s: %v", id, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not read job"})
-	case !found:
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
-	default:
-		writeJSON(w, http.StatusOK, map[string]string{"job_id": id, "status": status})
-	}
-}
-
 func main() {
 	initMetrics()
 	defer telemetry.Init(context.Background(), "server")()
@@ -167,6 +178,8 @@ func main() {
 	if amqpURL == "" {
 		amqpURL = "amqp://guest:guest@localhost:5672/"
 	}
+	registerJobMetrics(store)
+
 	// The API only publishes; the separate worker service consumes.
 	if queue, err = jobs.NewQueue(amqpURL, jobs.EnvInt("PUBLISHER_CHANNELS", 10)); err != nil {
 		log.Fatal(err)
@@ -174,7 +187,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /export-csv", exportCSV)
-	mux.HandleFunc("GET /jobs/{id}", pollJob)
 	mux.HandleFunc("GET /healthz", healthz)
 
 	port := os.Getenv("PORT")
@@ -183,12 +195,10 @@ func main() {
 	}
 	log.Printf("listening on :%s", port)
 
-	// Trace job submissions. Polls are far more numerous and uninteresting, so
-	// they are skipped unless TRACE_POLLS=true.
-	tracePolls := os.Getenv("TRACE_POLLS") == "true"
+	// Trace job submissions only; health checks are frequent and uninteresting.
 	traced := otelhttp.NewHandler(mux, "http",
 		otelhttp.WithFilter(func(r *http.Request) bool {
-			return tracePolls || r.URL.Path == "/export-csv"
+			return r.URL.Path == "/export-csv"
 		}),
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return r.Method + " " + r.URL.Path

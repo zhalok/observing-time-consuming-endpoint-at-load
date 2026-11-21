@@ -109,7 +109,6 @@ services:
       AMQP_URL: amqp://guest:guest@rabbitmq:5672/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
       # TRACE_SAMPLE_RATIO: "1.0"   # lower to sample fewer traces under load
-      # TRACE_POLLS: "true"         # also trace GET /jobs/{id}
     ports:
       - "8080:8080"
       - "9464:9464"
