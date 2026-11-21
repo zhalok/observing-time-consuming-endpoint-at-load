@@ -62,7 +62,43 @@ services:
     depends_on:
       - prometheus
 
+  server:
+    container_name: server
+    build: ./server
+    ports:
+      - "8080:8080"
+      - "9464:9464"
+    mem_limit: 256m
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+
+  client:
+    build: ./client
+    container_name: client
+    environment:
+      SERVER_URL: http://server:8080/export-csv
+      TOTAL_REQUESTS: "10000"
+      MAX_ITERATIONS: 100
+      METRICS_FILE: /metrics/client.prom
+    volumes:
+      - client-metrics:/metrics
+    depends_on:
+      - server
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+
+  client-metrics:
+    build: ./metrics-server
+    container_name: client-metrics
+    environment:
+      METRICS_FILE: /metrics/client.prom
+    volumes:
+      - client-metrics:/metrics:ro
+    ports:
+      - "9465:9465"
+
 volumes:
+  client-metrics:
   prometheus-data:
   grafana-data:
   loki-data:

@@ -1,0 +1,14 @@
+{
+  "name": "client",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/exporter-prometheus": "^0.301.2",
+    "@opentelemetry/sdk-metrics": "^3.1.1"
+  }
+}
