@@ -38,7 +38,9 @@ function getJSON(url) {
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          return reject(new Error(`status ${res.statusCode}`));
+          const err = new Error(`status ${res.statusCode}`);
+          err.body = Buffer.concat(chunks).toString().slice(0, 200); // what the server said
+          return reject(err);
         }
         try {
           resolve(JSON.parse(Buffer.concat(chunks).toString()));
@@ -53,9 +55,31 @@ function getJSON(url) {
   }).finally(() => inflight--);
 }
 
+// Metric label / grouping key for an error.
+function errorKey(err) {
+  return err.code || err.message;
+}
+
 function countError(err) {
-  const k = err.code || err.message;
+  const k = errorKey(err);
   errorTotals[k] = (errorTotals[k] || 0) + 1;
+}
+
+// Human-readable detail for logs: code, message, syscall, address and any
+// response body.
+function describeError(err) {
+  // Connection errors to "localhost" come wrapped in an AggregateError (one
+  // inner error per address tried); the useful details are on the inner ones.
+  if (Array.isArray(err.errors) && err.errors.length) {
+    return err.errors.map(describeError).join(" | ");
+  }
+  const parts = [];
+  if (err.code) parts.push(`code=${err.code}`);
+  if (err.message) parts.push(`message="${err.message}"`);
+  if (err.syscall) parts.push(`syscall=${err.syscall}`);
+  if (err.address) parts.push(`address=${err.address}${err.port ? ":" + err.port : ""}`);
+  if (err.body) parts.push(`body=${JSON.stringify(err.body)}`);
+  return parts.join(" ");
 }
 
 // API call: create a job. Resolves with its id, rejects if the submission
@@ -134,6 +158,7 @@ async function main() {
     // Promise.allSettled's state: the submission returned a job id.
     totals.sent += TOTAL;
     let ok = 0;
+    const roundErrors = new Map(); // error key -> { count, sample }
     for (const r of submitted) {
       if (r.status === "fulfilled") {
         totals.succeeded++;
@@ -141,6 +166,10 @@ async function main() {
       } else {
         totals.failed++;
         countError(r.reason);
+        const key = errorKey(r.reason);
+        const entry = roundErrors.get(key) || { count: 0, sample: r.reason };
+        entry.count++;
+        roundErrors.set(key, entry);
       }
     }
 
@@ -152,6 +181,11 @@ async function main() {
     console.log(
       `[round ${round}] submitted=${ok} failed=${TOTAL - ok} peakInflight=${peakInflight} time=${durationSec.toFixed(1)}s`
     );
+    // Why they failed: one line per distinct error, with the count and the
+    // details of the first occurrence.
+    for (const [key, { count, sample }] of roundErrors) {
+      console.log(`[round ${round}]   ${count}x ${key} (${describeError(sample)})`);
+    }
 
     if (!stopped && round < MAX_ITERATIONS) await sleep(ROUND_INTERVAL_MS);
   }
