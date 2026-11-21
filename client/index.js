@@ -77,9 +77,6 @@ function sample() {
     ...Object.entries(errorTotals).map(
       ([k, v]) => `client_request_errors_total{error=${JSON.stringify(k)}} ${v}${ts}`
     ),
-    "# HELP client_requests_inflight Requests currently in flight",
-    "# TYPE client_requests_inflight gauge",
-    `client_requests_inflight ${inflight}${ts}`,
     "# HELP client_rounds_completed Rounds completed so far",
     "# TYPE client_rounds_completed gauge",
     `client_rounds_completed ${roundsCompleted}${ts}`,
@@ -92,9 +89,6 @@ function sampleRoundEnd(durationSec) {
     "# HELP client_round_duration_seconds Duration of a round",
     "# TYPE client_round_duration_seconds gauge",
     `client_round_duration_seconds ${durationSec}${ts}`,
-    "# HELP client_round_peak_inflight Peak in-flight requests in a round",
-    "# TYPE client_round_peak_inflight gauge",
-    `client_round_peak_inflight ${peakInflight}${ts}`,
   ]);
 }
 

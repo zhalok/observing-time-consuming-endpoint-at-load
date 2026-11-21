@@ -5,8 +5,8 @@
     "name": "ad9jcn5",
     "namespace": "default",
     "uid": "006aeaa8-0761-40ff-b985-a45a1f3e93c2",
-    "resourceVersion": "1795250111122016",
-    "generation": 4,
+    "resourceVersion": "1795250518482993",
+    "generation": 6,
     "creationTimestamp": "2026-11-21T08:28:12Z",
     "labels": {
       "grafana.app/deprecatedInternalID": "2861850927624192"
@@ -15,11 +15,11 @@
       "grafana.app/createdBy": "access-policy:service",
       "grafana.app/managedBy": "classic-file-provisioning",
       "grafana.app/managerId": "cgroup-metrics",
-      "grafana.app/sourceChecksum": "ef988924c27ba32193a9b0ea2494a5b0",
+      "grafana.app/sourceChecksum": "c50c66824c8995b845259262f93bb729",
       "grafana.app/sourcePath": "/etc/grafana/dashboards/stress-testing-observation.json",
-      "grafana.app/sourceTimestamp": "1795250105000",
+      "grafana.app/sourceTimestamp": "1795250509000",
       "grafana.app/updatedBy": "access-policy:service",
-      "grafana.app/updatedTimestamp": "2026-11-21T08:35:11Z",
+      "grafana.app/updatedTimestamp": "2026-11-21T08:41:58Z",
       "grafana.app/folder": ""
     }
   },
@@ -48,127 +48,6 @@
     "cursorSync": "Off",
     "editable": true,
     "elements": {
-      "panel-1": {
-        "kind": "Panel",
-        "spec": {
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "avg(client_requests_inflight{ })",
-                        "fromExploreMetrics": false,
-                        "legendFormat": "Total requests",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "client_round_peak_inflight-avg"
-                  }
-                }
-              ],
-              "queryOptions": {
-                "maxDataPoints": 500
-              },
-              "transformations": []
-            }
-          },
-          "description": "Peak in-flight requests in a round\n\n**Type:** *gauge*\n\n",
-          "id": 1,
-          "links": [],
-          "title": "Client Inflight Requests",
-          "vizConfig": {
-            "group": "timeseries",
-            "kind": "VizConfig",
-            "spec": {
-              "fieldConfig": {
-                "defaults": {
-                  "color": {
-                    "mode": "palette-classic"
-                  },
-                  "custom": {
-                    "axisBorderShow": false,
-                    "axisCenteredZero": false,
-                    "axisColorMode": "text",
-                    "axisLabel": "",
-                    "axisPlacement": "auto",
-                    "barAlignment": 0,
-                    "barWidthFactor": 0.6,
-                    "drawStyle": "line",
-                    "fillOpacity": 9,
-                    "gradientMode": "none",
-                    "hideFrom": {
-                      "legend": false,
-                      "tooltip": false,
-                      "viz": false
-                    },
-                    "insertNulls": false,
-                    "lineInterpolation": "linear",
-                    "lineWidth": 1,
-                    "pointSize": 5,
-                    "scaleDistribution": {
-                      "type": "linear"
-                    },
-                    "showPoints": "auto",
-                    "showValues": false,
-                    "spanNulls": false,
-                    "stacking": {
-                      "group": "A",
-                      "mode": "none"
-                    },
-                    "thresholdsStyle": {
-                      "mode": "off"
-                    }
-                  },
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "color": "green",
-                        "value": 0
-                      },
-                      {
-                        "color": "red",
-                        "value": 80
-                      }
-                    ]
-                  },
-                  "unit": "none"
-                },
-                "overrides": []
-              },
-              "options": {
-                "annotations": {
-                  "multiLane": true
-                },
-                "legend": {
-                  "calcs": [],
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
-                },
-                "tooltip": {
-                  "hideZeros": false,
-                  "mode": "single",
-                  "sort": "none"
-                }
-              }
-            },
-            "version": "13.3.1"
-          }
-        }
-      },
       "panel-2": {
         "kind": "Panel",
         "spec": {
@@ -728,7 +607,7 @@
             "spec": {
               "element": {
                 "kind": "ElementReference",
-                "name": "panel-1"
+                "name": "panel-4"
               }
             }
           },
@@ -737,7 +616,7 @@
             "spec": {
               "element": {
                 "kind": "ElementReference",
-                "name": "panel-4"
+                "name": "panel-5"
               }
             }
           },
@@ -756,15 +635,6 @@
               "element": {
                 "kind": "ElementReference",
                 "name": "panel-2"
-              }
-            }
-          },
-          {
-            "kind": "AutoGridLayoutItem",
-            "spec": {
-              "element": {
-                "kind": "ElementReference",
-                "name": "panel-5"
               }
             }
           }
