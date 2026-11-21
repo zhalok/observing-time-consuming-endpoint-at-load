@@ -85,6 +85,7 @@ function describeError(err) {
 // API call: create a job. Resolves with its id, rejects if the submission
 // failed. Does not touch any counters; main() records the outcome.
 async function submit() {
+  totals.sent++; // counted when the request is sent, so the metric moves during the burst
   const body = await getJSON(URL_);
   if (!body.job_id) throw new Error("no job_id");
   return body.job_id;
@@ -156,7 +157,6 @@ async function main() {
 
     // Walk through the results and update the stats. "fulfilled" is
     // Promise.allSettled's state: the submission returned a job id.
-    totals.sent += TOTAL;
     let ok = 0;
     const roundErrors = new Map(); // error key -> { count, sample }
     for (const r of submitted) {

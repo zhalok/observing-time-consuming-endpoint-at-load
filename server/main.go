@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,7 +27,32 @@ import (
 var (
 	inflight       atomic.Int64
 	inflightMetric metric.Int64UpDownCounter
+	connsMetric    metric.Int64UpDownCounter
+	connStates     sync.Map // net.Conn -> "active" | "idle"
 )
+
+// trackConn is an http.Server ConnState hook. It keeps server_connections{state}
+// = open inbound connections, split into ones serving a request (active) and
+// ones open but waiting (idle, including keep-alive).
+func trackConn(c net.Conn, s http.ConnState) {
+	ctx := context.Background()
+	move := func(to string) {
+		if prev, ok := connStates.Swap(c, to); ok {
+			connsMetric.Add(ctx, -1, metric.WithAttributes(attribute.String("state", prev.(string))))
+		}
+		connsMetric.Add(ctx, 1, metric.WithAttributes(attribute.String("state", to)))
+	}
+	switch s {
+	case http.StateNew, http.StateIdle:
+		move("idle")
+	case http.StateActive:
+		move("active")
+	case http.StateHijacked, http.StateClosed:
+		if prev, ok := connStates.LoadAndDelete(c); ok {
+			connsMetric.Add(ctx, -1, metric.WithAttributes(attribute.String("state", prev.(string))))
+		}
+	}
+}
 
 var (
 	store *jobs.Store
@@ -46,6 +74,27 @@ func initMetrics() {
 	inflightMetric, err = provider.Meter("server").Int64UpDownCounter(
 		"server_inflight_requests",
 		metric.WithDescription("Number of requests currently being handled by the server"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	connsMetric, err = provider.Meter("server").Int64UpDownCounter(
+		"server_connections",
+		metric.WithDescription("Open inbound connections by state (active = serving a request, idle = open and waiting)"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Read at scrape time, so no goroutine or timer is needed to keep it fresh.
+	_, err = provider.Meter("server").Int64ObservableGauge(
+		"server_goroutines",
+		metric.WithDescription("Number of goroutines currently running in the server process"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			o.Observe(int64(runtime.NumGoroutine()))
+			return nil
+		}),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -204,5 +253,6 @@ func main() {
 			return r.Method + " " + r.URL.Path
 		}),
 	)
-	log.Fatal(http.ListenAndServe(":"+port, logger(traced)))
+	srv := &http.Server{Addr: ":" + port, Handler: logger(traced), ConnState: trackConn}
+	log.Fatal(srv.ListenAndServe())
 }
