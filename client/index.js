@@ -65,42 +65,19 @@ function countError(err) {
   errorTotals[k] = (errorTotals[k] || 0) + 1;
 }
 
-// Create a job; resolves with its id, rejects if the submission failed.
-function submit() {
-  totals.sent++;
-  return getJSON(URL_).then(
-    (body) => {
-      if (!body.job_id) throw new Error("no job_id");
-      submitTotals.succeeded++;
-      return body.job_id;
-    },
-    (err) => {
-      submitTotals.failed++;
-      totals.failed++;
-      countError(err);
-      throw err;
-    }
-  );
+// API call: create a job. Resolves with its id, rejects if the submission
+// failed. Does not touch any counters; main() records the outcome.
+async function submit() {
+  const body = await getJSON(URL_);
+  if (!body.job_id) throw new Error("no job_id");
+  return body.job_id;
 }
 
-// Poll one job; resolves true if it has succeeded. Never rejects: a failed
-// poll just leaves the job in the pending set for the next sweep.
-function poll(id) {
-  pollTotals.sent++;
-  return getJSON(`${JOBS_URL}/${id}`).then(
-    (body) => {
-      if (body.status === "succeeded") {
-        totals.succeeded++;
-        return true;
-      }
-      return false;
-    },
-    (err) => {
-      pollTotals.failed++;
-      countError(err);
-      return false;
-    }
-  );
+// API call: fetch a job's current status ("pending", "processing",
+// "succeeded"). Rejects if the poll itself failed.
+async function poll(id) {
+  const body = await getJSON(`${JOBS_URL}/${id}`);
+  return body.status;
 }
 
 // The file is an append-only log in Prometheus exposition syntax
@@ -177,11 +154,23 @@ async function main() {
     peakInflight = 0;
     const succeededBefore = totals.succeeded;
 
-    // 1. Burst: submit TOTAL jobs at once and collect their ids.
-    // "fulfilled" here is Promise.allSettled's state: the submission returned a
-    // job id. Rejected ones failed to submit, so there is no job to poll.
+    // 1. Burst: submit TOTAL jobs at once and wait for all of them to settle.
     const submitted = await Promise.allSettled(Array.from({ length: TOTAL }, submit));
-    const ids = submitted.filter((r) => r.status === "fulfilled").map((r) => r.value);
+
+    // Walk through the results and update the stats. "fulfilled" is
+    // Promise.allSettled's state: the submission returned a job id. Rejected
+    // ones failed to submit, so there is no job to poll.
+    totals.sent += TOTAL;
+    const ids = [];
+    for (const r of submitted) {
+      if (r.status === "fulfilled") {
+        submitTotals.succeeded++;
+        ids.push(r.value);
+      } else {
+        submitTotals.failed++;
+        countError(r.reason);
+      }
+    }
     const submitSec = (Date.now() - start) / 1000;
     console.log(`[round ${round}] submitted ${ids.length}/${TOTAL} jobs in ${submitSec.toFixed(1)}s, polling...`);
 
@@ -191,12 +180,31 @@ async function main() {
     let pending = ids.map((id) => ({ id, polls: 0 }));
     let sweeps = 0;
     let timedOut = 0;
+    let jobFailed = 0;
     while (pending.length && !stopped) {
       sweeps++;
-      const done = await Promise.all(pending.map((j) => poll(j.id)));
+      const polled = await Promise.allSettled(pending.map((job) => poll(job.id)));
+      pollTotals.sent += pending.length;
+
       const next = [];
-      pending.forEach((job, i) => {
-        if (done[i]) return; // succeeded
+      polled.forEach((r, i) => {
+        const job = pending[i];
+        if (r.status === "fulfilled" && r.value === "succeeded") {
+          totals.succeeded++;
+          return; // done, drop it
+        }
+        if (r.status === "fulfilled" && r.value === "failed") {
+          // The server reports the job as failed: final, so no more polling.
+          jobFailed++;
+          totals.failed++;
+          countError(new Error("job_failed"));
+          return; // done, drop it
+        }
+        if (r.status === "rejected") {
+          // A failed poll just leaves the job pending for the next sweep.
+          pollTotals.failed++;
+          countError(r.reason);
+        }
         job.polls++;
         if (job.polls >= MAX_POLLS) {
           timedOut++;
@@ -217,7 +225,7 @@ async function main() {
 
     console.log(
       `[round ${round}] submitted=${ids.length} submitFailed=${TOTAL - ids.length} ` +
-        `jobsSucceeded=${totals.succeeded - succeededBefore} timedOut=${timedOut} stillPending=${pending.length} ` +
+        `jobsSucceeded=${totals.succeeded - succeededBefore} timedOut=${timedOut} jobFailed=${jobFailed} stillPending=${pending.length} ` +
         `sweeps=${sweeps} peakInflight=${peakInflight} time=${durationSec.toFixed(1)}s`
     );
   }
