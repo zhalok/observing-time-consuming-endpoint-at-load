@@ -2,13 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"sync/atomic"
 	"time"
 
+	"server/internal/jobs"
+	"server/internal/telemetry"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
@@ -20,7 +25,16 @@ var (
 	inflightMetric metric.Int64UpDownCounter
 )
 
+var (
+	store *jobs.Store
+	queue *jobs.Queue
+)
+
 func initMetrics() {
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9464"
+	}
 	exporter, err := prometheus.New()
 	if err != nil {
 		log.Fatal(err)
@@ -39,7 +53,7 @@ func initMetrics() {
 	go func() {
 		m := http.NewServeMux()
 		m.Handle("/metrics", promhttp.Handler())
-		log.Fatal(http.ListenAndServe(":9464", m))
+		log.Fatal(http.ListenAndServe(":"+metricsPort, m))
 	}()
 }
 
@@ -73,27 +87,89 @@ func logger(next http.Handler) http.Handler {
 	})
 }
 
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(v)
+}
+
+// exportCSV no longer does the work itself: it records a job in Postgres,
+// queues it for the consumers and returns the job id right away.
 func exportCSV(w http.ResponseWriter, r *http.Request) {
-	// Simulate a slow export; abort early if the client goes away.
-	select {
-	case <-time.After(10 * time.Second):
-	case <-r.Context().Done():
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	id, err := store.Create(ctx)
+	if err != nil {
+		log.Printf("create job: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create job"})
 		return
 	}
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", `attachment; filename="export.csv"`)
-	w.Write([]byte("id,name\n1,alice\n2,bob\n"))
+	if err := queue.Publish(ctx, id); err != nil {
+		log.Printf("publish job %s: %v", id, err)
+		store.SetStatus(context.Background(), id, jobs.StatusFailed)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not queue job"})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": id, "status": jobs.StatusPending})
+}
+
+// pollJob returns the current status of a job.
+func pollJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	status, found, err := store.Get(r.Context(), id)
+	switch {
+	case err != nil:
+		log.Printf("get job %s: %v", id, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not read job"})
+	case !found:
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"job_id": id, "status": status})
+	}
 }
 
 func main() {
 	initMetrics()
+	defer telemetry.Init(context.Background(), "server")()
+
+	var err error
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://postgres:postgres@localhost:5432/jobs?sslmode=disable"
+	}
+	if store, err = jobs.NewStore(dbURL); err != nil {
+		log.Fatal(err)
+	}
+	amqpURL := os.Getenv("AMQP_URL")
+	if amqpURL == "" {
+		amqpURL = "amqp://guest:guest@localhost:5672/"
+	}
+	// The API only publishes; the separate worker service consumes.
+	if queue, err = jobs.NewQueue(amqpURL, jobs.EnvInt("PUBLISHER_CHANNELS", 10)); err != nil {
+		log.Fatal(err)
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/export-csv", exportCSV)
+	mux.HandleFunc("GET /export-csv", exportCSV)
+	mux.HandleFunc("GET /jobs/{id}", pollJob)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 	log.Printf("listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, logger(mux)))
+
+	// Trace job submissions. Polls are far more numerous and uninteresting, so
+	// they are skipped unless TRACE_POLLS=true.
+	tracePolls := os.Getenv("TRACE_POLLS") == "true"
+	traced := otelhttp.NewHandler(mux, "http",
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			return tracePolls || r.URL.Path == "/export-csv"
+		}),
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+	)
+	log.Fatal(http.ListenAndServe(":"+port, logger(traced)))
 }

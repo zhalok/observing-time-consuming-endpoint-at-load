@@ -62,15 +62,83 @@ services:
     depends_on:
       - prometheus
 
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    restart: always
+    user: root # so the named volume is writable
+    command: -config.file=/etc/tempo/tempo.yml
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: jobs
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d jobs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    restart: always
+    ports:
+      - "15672:15672" # management UI (guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
   server:
     container_name: server
     build: ./server
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/jobs?sslmode=disable
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      # TRACE_SAMPLE_RATIO: "1.0"   # lower to sample fewer traces under load
+      # TRACE_POLLS: "true"         # also trace GET /jobs/{id}
     ports:
       - "8080:8080"
       - "9464:9464"
     mem_limit: 256m
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build: ./server
+    command: ["/worker"]
+    container_name: worker
+    restart: always
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/jobs?sslmode=disable
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      CONSUMER_COUNT: "5"
+      WORK_DURATION: 10s
+      DB_MAX_CONNS: "10"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   client:
     build: ./client
@@ -98,6 +166,8 @@ services:
       - "9465:9465"
 
 volumes:
+  tempo-data:
+  postgres-data:
   client-metrics:
   prometheus-data:
   grafana-data:
