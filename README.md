@@ -87,7 +87,7 @@ restarting it, remove its volume: `docker volume rm obstainer_grafana-data`.
 
 Docker doesn't expose per-container CPU/memory/disk/network/process counts as Prometheus
 metrics out of the box. Rather than run a heavyweight tool like cAdvisor, `cgroup-exporter`
-([cgroup-exporter/main.go](cgroup-exporter/main.go)) is a small Go program that reads the
+([monitoring/cgroup-exporter/main.go](monitoring/cgroup-exporter/main.go)) is a small Go program that reads the
 numbers straight from cgroup v2 files:
 
 - **CPU** — `cpu.stat`'s `usage_usec` (cumulative CPU time)
@@ -116,12 +116,12 @@ The exporter serves everything as plain-text Prometheus metrics on `/metrics`:
 - `cgroup_pids{container_name}` (gauge)
 - `cgroup_network_receive_bytes_total` / `cgroup_network_transmit_bytes_total` (counters)
 
-Prometheus ([prometheus/prometheus.yml](prometheus/prometheus.yml)) scrapes this endpoint
+Prometheus ([monitoring/prometheus/prometheus.yml](monitoring/prometheus/prometheus.yml)) scrapes this endpoint
 every 5 seconds.
 
 ### Logs: Docker service discovery
 
-Promtail ([promtail/promtail-config.yml](promtail/promtail-config.yml)) uses its built-in
+Promtail ([monitoring/promtail/promtail-config.yml](monitoring/promtail/promtail-config.yml)) uses its built-in
 `docker_sd_configs`, polling the Docker socket every 5 seconds to discover every running
 container and stream its stdout/stderr straight into Loki — no log files or extra mounts
 needed for the log content itself. Each log line is labeled with the container name
@@ -130,8 +130,8 @@ filters on.
 
 ### Grafana dashboards
 
-All dashboards live in [grafana/dashboards/](grafana/dashboards/) and are auto-provisioned
-(see [grafana/provisioning/](grafana/provisioning/)) — nothing needs to be imported by hand.
+All dashboards live in [monitoring/grafana/dashboards/](monitoring/grafana/dashboards/) and are auto-provisioned
+(see [monitoring/grafana/provisioning/](monitoring/grafana/provisioning/)) — nothing needs to be imported by hand.
 
 - **CPU Usage**, **Memory Usage**, **Network Usage**, **Disk Usage**, **Number of Processes**
   — one dashboard per resource type. Each uses a Grafana template variable
@@ -143,13 +143,13 @@ All dashboards live in [grafana/dashboards/](grafana/dashboards/) and are auto-p
 - **All Metrics** (`cgroup-metrics.json`) — a single overview dashboard combining CPU,
   memory, disk I/O, and PID panels side by side for a quick at-a-glance view.
 
-Datasources are provisioned in [grafana/provisioning/datasources/](grafana/provisioning/datasources/):
+Datasources are provisioned in [monitoring/grafana/provisioning/datasources/](monitoring/grafana/provisioning/datasources/):
 Prometheus is pinned to a fixed `uid: prometheus` (dashboards reference it explicitly), while
 Loki is referenced by datasource `type` only, so it resolves automatically without needing a
 pinned uid.
 
 ## Adding a new dashboard/panel
 
-Drop a new dashboard JSON file into `grafana/dashboards/` — the `dashboard.yml` provisioning
+Drop a new dashboard JSON file into `monitoring/grafana/dashboards/` — the `dashboard.yml` provisioning
 provider polls that folder every 10 seconds and picks it up automatically, no Grafana restart
 needed.

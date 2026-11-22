@@ -2,26 +2,8 @@
   "apiVersion": "dashboard.grafana.app/v2",
   "kind": "Dashboard",
   "metadata": {
-    "name": "ad9jcn5",
-    "namespace": "default",
-    "uid": "006aeaa8-0761-40ff-b985-a45a1f3e93c2",
-    "resourceVersion": "1795250518482993",
-    "generation": 6,
-    "creationTimestamp": "2026-11-21T08:28:12Z",
-    "labels": {
-      "grafana.app/deprecatedInternalID": "2861850927624192"
-    },
-    "annotations": {
-      "grafana.app/createdBy": "access-policy:service",
-      "grafana.app/managedBy": "classic-file-provisioning",
-      "grafana.app/managerId": "cgroup-metrics",
-      "grafana.app/sourceChecksum": "c50c66824c8995b845259262f93bb729",
-      "grafana.app/sourcePath": "/etc/grafana/dashboards/stress-testing-observation.json",
-      "grafana.app/sourceTimestamp": "1795250509000",
-      "grafana.app/updatedBy": "access-policy:service",
-      "grafana.app/updatedTimestamp": "2026-11-21T08:41:58Z",
-      "grafana.app/folder": ""
-    }
+    "name": "stress-test-sync",
+    "namespace": "default"
   },
   "spec": {
     "annotations": [
@@ -48,7 +30,7 @@
     "cursorSync": "Off",
     "editable": true,
     "elements": {
-      "panel-2": {
+      "panel-20": {
         "kind": "Panel",
         "spec": {
           "data": {
@@ -66,15 +48,35 @@
                       "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "editorMode": "code",
-                        "expr": "avg(cgroup_memory_usage_bytes{ container_name=\"server\"})",
+                        "expr": "sum(rate(http_server_request_duration_seconds_count{http_route=\"/process-csv-sync\",http_response_status_code=~\"2..\"}[$__rate_interval]))",
                         "fromExploreMetrics": false,
-                        "legendFormat": "Server Memory Usage",
+                        "legendFormat": "served req/s",
                         "range": true
                       },
                       "version": "v0"
                     },
-                    "refId": "cgroup_memory_usage_bytes-avg"
+                    "refId": "A"
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "expr": "sum(rate(http_server_request_duration_seconds_count{http_route=\"/process-csv-sync\",http_response_status_code!~\"2..\"}[$__rate_interval]))",
+                        "fromExploreMetrics": false,
+                        "legendFormat": "failed req/s",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "B"
                   }
                 }
               ],
@@ -84,10 +86,10 @@
               "transformations": []
             }
           },
-          "description": "Current memory usage in bytes\n\n**Type:** *gauge*\n\n",
-          "id": 2,
+          "description": "Requests per second answered 2xx on GET /process-csv-sync.",
+          "id": 20,
           "links": [],
-          "title": "Server Memory Usage",
+          "title": "Throughput (sync)",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -144,7 +146,7 @@
                       }
                     ]
                   },
-                  "unit": "bytes"
+                  "unit": "reqps"
                 },
                 "overrides": []
               },
@@ -290,7 +292,7 @@
           }
         }
       },
-      "panel-4": {
+      "panel-2": {
         "kind": "Panel",
         "spec": {
           "data": {
@@ -308,13 +310,15 @@
                       "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "expr": "avg(server_inflight_requests{ })",
+                        "editorMode": "code",
+                        "expr": "avg(cgroup_memory_usage_bytes{ container_name=\"server\"})",
                         "fromExploreMetrics": false,
-                        "legendFormat": "avg"
+                        "legendFormat": "Server Memory Usage",
+                        "range": true
                       },
                       "version": "v0"
                     },
-                    "refId": "server_inflight_requests-avg"
+                    "refId": "cgroup_memory_usage_bytes-avg"
                   }
                 }
               ],
@@ -324,10 +328,129 @@
               "transformations": []
             }
           },
-          "description": "Number of requests currently being handled by the server\n\n**Type:** *gauge*\n\n",
-          "id": 4,
+          "description": "Current memory usage in bytes\n\n**Type:** *gauge*\n\n",
+          "id": 2,
           "links": [],
-          "title": "Server Inflight Requests",
+          "title": "Server Memory Usage",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "barWidthFactor": 0.6,
+                    "drawStyle": "line",
+                    "fillOpacity": 9,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "showValues": false,
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": 0
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  "unit": "bytes"
+                },
+                "overrides": []
+              },
+              "options": {
+                "annotations": {
+                  "multiLane": true
+                },
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "hideZeros": false,
+                  "mode": "single",
+                  "sort": "none"
+                }
+              }
+            },
+            "version": "13.3.1"
+          }
+        }
+      },
+      "panel-16": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "expr": "sum(server_inflight_requests{ })",
+                        "fromExploreMetrics": false,
+                        "legendFormat": "inflight requests"
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "server_goroutines-avg"
+                  }
+                }
+              ],
+              "queryOptions": {
+                "maxDataPoints": 500
+              },
+              "transformations": []
+            }
+          },
+          "description": "Requests currently being handled by the server (server_inflight_requests), health checks excluded.",
+          "id": 16,
+          "links": [],
+          "title": "In-flight requests",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -408,193 +531,6 @@
             "version": "13.3.1"
           }
         }
-      },
-      "panel-5": {
-        "kind": "Panel",
-        "spec": {
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "sum(rate(client_requests_failed_total{ }[$__rate_interval]))",
-                        "instant": false,
-                        "legendFormat": "failed requests",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "A"
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "sum(rate(client_requests_succeeded_total{ }[$__rate_interval]))",
-                        "instant": false,
-                        "legendFormat": "successful requests",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "B"
-                  }
-                }
-              ],
-              "queryOptions": {
-                "maxDataPoints": 500
-              },
-              "transformations": []
-            }
-          },
-          "description": "Peak in-flight requests in a round\n\n**Type:** *gauge*\n\n",
-          "id": 5,
-          "links": [],
-          "title": "Success and Failure Stats",
-          "vizConfig": {
-            "group": "timeseries",
-            "kind": "VizConfig",
-            "spec": {
-              "fieldConfig": {
-                "defaults": {
-                  "color": {
-                    "mode": "palette-classic"
-                  },
-                  "custom": {
-                    "axisBorderShow": false,
-                    "axisCenteredZero": false,
-                    "axisColorMode": "text",
-                    "axisLabel": "",
-                    "axisPlacement": "auto",
-                    "barAlignment": 0,
-                    "barWidthFactor": 0.6,
-                    "drawStyle": "line",
-                    "fillOpacity": 9,
-                    "gradientMode": "none",
-                    "hideFrom": {
-                      "legend": false,
-                      "tooltip": false,
-                      "viz": false
-                    },
-                    "insertNulls": false,
-                    "lineInterpolation": "linear",
-                    "lineWidth": 1,
-                    "pointSize": 5,
-                    "scaleDistribution": {
-                      "type": "linear"
-                    },
-                    "showPoints": "auto",
-                    "showValues": false,
-                    "spanNulls": false,
-                    "stacking": {
-                      "group": "A",
-                      "mode": "none"
-                    },
-                    "thresholdsStyle": {
-                      "mode": "off"
-                    }
-                  },
-                  "mappings": [
-                    {
-                      "options": {
-                        "failed requestes": {
-                          "color": "red",
-                          "index": 0
-                        }
-                      },
-                      "type": "value"
-                    }
-                  ],
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "color": "green",
-                        "value": 0
-                      },
-                      {
-                        "color": "red",
-                        "value": 80
-                      }
-                    ]
-                  },
-                  "unit": "none"
-                },
-                "overrides": [
-                  {
-                    "matcher": {
-                      "id": "byName",
-                      "options": "failed requests",
-                      "scope": "series"
-                    },
-                    "properties": [
-                      {
-                        "id": "color",
-                        "value": {
-                          "fixedColor": "red",
-                          "mode": "fixed"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "matcher": {
-                      "id": "byName",
-                      "options": "successful requests",
-                      "scope": "series"
-                    },
-                    "properties": [
-                      {
-                        "id": "color",
-                        "value": {
-                          "fixedColor": "green",
-                          "mode": "fixed"
-                        }
-                      }
-                    ]
-                  }
-                ]
-              },
-              "options": {
-                "annotations": {
-                  "multiLane": true
-                },
-                "legend": {
-                  "calcs": [],
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
-                },
-                "tooltip": {
-                  "hideZeros": false,
-                  "mode": "single",
-                  "sort": "none"
-                }
-              }
-            },
-            "version": "13.3.1"
-          }
-        }
       }
     },
     "layout": {
@@ -607,16 +543,7 @@
             "spec": {
               "element": {
                 "kind": "ElementReference",
-                "name": "panel-4"
-              }
-            }
-          },
-          {
-            "kind": "AutoGridLayoutItem",
-            "spec": {
-              "element": {
-                "kind": "ElementReference",
-                "name": "panel-5"
+                "name": "panel-20"
               }
             }
           },
@@ -635,6 +562,15 @@
               "element": {
                 "kind": "ElementReference",
                 "name": "panel-2"
+              }
+            }
+          },
+          {
+            "kind": "AutoGridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-16"
               }
             }
           }
@@ -678,7 +614,7 @@
       "timezone": "browser",
       "to": "now"
     },
-    "title": "Stress Testing Observation",
+    "title": "Stress Test - Sync",
     "variables": []
   }
 }

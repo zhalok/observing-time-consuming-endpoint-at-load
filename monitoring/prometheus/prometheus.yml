@@ -10,6 +10,6 @@ scrape_configs:
     static_configs:
       - targets: ["server:9464"]
 
-  - job_name: client
+  - job_name: rabbitmq
     static_configs:
-      - targets: ["client-metrics:9465"]
+      - targets: ["rabbitmq:15692"]
