@@ -1,155 +1,132 @@
-# Obstainer
+# Observing a time-consuming endpoint under load
 
-A self-contained container observability stack: a custom exporter reads per-container
-resource usage straight from the Linux cgroup v2 filesystem, Prometheus stores it,
-Loki/Promtail collect logs, and Grafana visualizes everything in per-container dashboards.
+This project compares two ways of exposing the same slow operation over HTTP, and
+shows how each behaves under heavy load using Prometheus, Loki, Tempo and Grafana.
 
-## Demo
+The operation: read a large customer CSV (`server/data/customer.csv`) and sum its
+`c_acctbal` column. It takes long enough that how you structure the endpoint matters.
 
-[![Obstainer demo](https://img.youtube.com/vi/sifxPdFs2AE/maxresdefault.jpg)](https://youtu.be/sifxPdFs2AE)
+| Endpoint                  | Style | What the request does                                         | Response            |
+|---------------------------|-------|---------------------------------------------------------------|---------------------|
+| `GET /process-csv-sync`   | Sync  | Processes the CSV inside the request handler                  | `200` with the total |
+| `GET /process-csv-async`  | Async | Creates a job, queues it, returns immediately                 | `202` with a job id |
+| `GET /healthz`            | -     | Checks Postgres and the RabbitMQ connection                   | `200` / `503`       |
 
-Watch the demo on YouTube: <https://youtu.be/sifxPdFs2AE>
+## Architecture
 
-## Stack overview
+### Sync
 
-| Service           | Role                                                              | Port |
-|-------------------|-------------------------------------------------------------------|------|
-| `cgroup-exporter`  | Custom Go exporter, reads `/sys/fs/cgroup` and exposes Prometheus metrics | 9100 |
-| `prometheus`       | Scrapes and stores metrics from `cgroup-exporter`                 | 9090 |
-| `loki`             | Stores container logs                                             | 3100 |
-| `promtail`         | Discovers running containers via the Docker socket and ships their logs to Loki | -    |
-| `grafana`          | Dashboards for metrics (Prometheus) and logs (Loki)                | 3000 |
-
-All services are wired together in [compose.yml](compose.yml).
-
-## Data flow
+The request holds a connection and a server goroutine for the whole duration of the
+work. Under load, in-flight requests, goroutines, CPU and memory on the **server** grow
+with the number of concurrent clients, and latency grows with them.
 
 ```mermaid
-flowchart TB
-    subgraph Host["Host machine"]
-        cgroupfs["/sys/fs/cgroup\n(per-container CPU/mem/io/pids)"]
-        procfs["/proc/&lt;pid&gt;/net/dev\n(per-container network)"]
-        dockersock["Docker socket\n(container names, discovery)"]
-        containers["Other running containers\n(stdout/stderr)"]
-    end
-
-    cgroupfs -- "read-only mount" --> exporter
-    procfs -- "read-only mount, needs pid: host" --> exporter
-    dockersock -- "read-only mount" --> exporter
-    dockersock -- "docker_sd_configs" --> promtail
-    containers -- "log stream" --> promtail
-
-    exporter["cgroup-exporter\n:9100/metrics"]
-    prometheus["Prometheus\n:9090"]
-    loki["Loki\n:3100"]
-    promtail["Promtail"]
-    grafana["Grafana\n:3000"]
-
-    exporter -- "scraped every 5s" --> prometheus
-    promtail -- "pushed logs" --> loki
-    prometheus -- "PromQL queries" --> grafana
-    loki -- "LogQL queries" --> grafana
-
-    grafana --> dashCPU["CPU / Memory / Disk /\nNetwork / Process dashboards"]
-    grafana --> dashLogs["Logs dashboard"]
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    participant F as customer.csv
+    C->>S: GET /process-csv-sync
+    S->>F: read and sum c_acctbal
+    F-->>S: total
+    S-->>C: 200 {"total_c_acctbal": ...}
 ```
 
-1. `cgroup-exporter` reads raw cgroup v2 files and the Docker socket on the host, and turns
-   them into Prometheus-formatted metrics.
-2. `Prometheus` pulls (scrapes) those metrics every 5 seconds and stores them as time series.
-3. `Promtail` separately watches the Docker socket for running containers and streams their
-   logs into `Loki`.
-4. `Grafana` queries Prometheus (PromQL) for the metrics dashboards and Loki (LogQL) for the
-   Logs dashboard, rendering one panel per container in each.
+### Async
+
+The server only records the job and queues it, so the request finishes in milliseconds.
+A separate **worker** service does the CSV processing at its own pace, bounded by its
+consumer count. Load turns into queue depth instead of server pressure.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    participant P as Postgres
+    participant Q as RabbitMQ
+    participant W as Worker
+    C->>S: GET /process-csv-async
+    S->>P: INSERT job (status = pending)
+    S->>Q: publish job id (wait for broker confirm)
+    S-->>C: 202 {"job_id": ..., "status": "pending"}
+    Q->>W: deliver job id (prefetch 1)
+    W->>P: status = processing
+    W->>W: read and sum c_acctbal
+    W->>P: status = succeeded
+    W->>Q: ack
+```
+
+Details:
+
+- **Job state** lives in the Postgres `jobs` table (`pending`, `processing`, `succeeded`, `failed`), see [server/init.sql](server/init.sql).
+- **Queue** is a durable RabbitMQ queue, `export_jobs`. Messages are persistent and the server waits for the broker's publish confirm, so an accepted job is not lost.
+- **Publishing** uses a pool of confirm-mode channels (`PUBLISHER_CHANNELS`, default 10), since AMQP channels are not goroutine-safe.
+- **Consuming**: the worker runs `CONSUMER_COUNT` consumers (default 5 in compose), each with prefetch 1, so at most that many jobs run at once.
+- **Failures**: if processing fails, the message is nacked and requeued. If the publish fails, the job is marked `failed` and the API returns `500`.
+- **Tracing**: the trace context is carried in the AMQP message headers, so one trace spans API request, queue publish, worker processing and DB updates.
+
+### Sync vs async at a glance
+
+|                         | Sync                              | Async                                      |
+|-------------------------|-----------------------------------|--------------------------------------------|
+| Response time           | As long as the work               | Time to insert a row and publish a message |
+| Where the work runs     | Server process                    | Worker process                             |
+| Concurrency of the work | Unbounded (one per request)       | Bounded by consumers                       |
+| Under overload          | Server slows down, may fail       | Queue grows, jobs wait                     |
+| Result                  | In the response                   | Job status in Postgres                     |
+
+## Services
+
+All wired together in [compose.yml](compose.yml).
+
+| Service           | Role                                                                | Port         |
+|-------------------|---------------------------------------------------------------------|--------------|
+| `server`          | HTTP API (sync and async endpoints) and its Prometheus metrics      | 8080, 9464   |
+| `worker`          | RabbitMQ consumers that process async jobs                          | -            |
+| `postgres`        | Job storage                                                         | -            |
+| `rabbitmq`        | Job queue (management UI, guest/guest)                              | 15672        |
+| `cgroup-exporter` | Custom Go exporter, per-container CPU/memory/IO/pids from cgroup v2 | 9100         |
+| `prometheus`      | Scrapes and stores metrics                                          | 9090         |
+| `loki` / `promtail` | Container logs                                                    | 3100         |
+| `tempo`           | Distributed traces (OTLP)                                           | -            |
+| `grafana`         | Dashboards (admin / admin)                                          | 3000         |
+
+## Load generator
+
+[client/index.js](client/index.js) fires bursts of requests at one endpoint, waits for
+them to settle, pauses, and repeats. Pick the endpoint with `SERVER_URL`.
+
+| Variable            | Default                                    | Meaning                          |
+|---------------------|--------------------------------------------|----------------------------------|
+| `SERVER_URL`        | `http://localhost:8080/process-csv-async`  | Endpoint to hit                  |
+| `TOTAL_REQUESTS`    | `10000`                                    | Requests per round               |
+| `MAX_ITERATIONS`    | `10`                                       | Number of rounds                 |
+| `ROUND_INTERVAL_MS` | `1000`                                     | Pause between rounds             |
+| `TIMEOUT_MS`        | `60000`                                    | Per-request timeout              |
 
 ## Running it
 
-```bash
+The CSV is not committed (`server/data` is git-ignored). Put the file at `server/data/customer.csv`
+with a `c_acctbal` column, then:
+
+```sh
 docker compose up -d --build
+
+cd client
+npm install
+
+# async
+SERVER_URL=http://localhost:8080/process-csv-async npm start
+
+# sync
+SERVER_URL=http://localhost:8080/process-csv-sync npm start
 ```
 
-Then open Grafana at [http://localhost:3000](http://localhost:3000) (login: `admin` / `admin`,
-set via `GF_SECURITY_ADMIN_PASSWORD` in compose.yml).
+Open Grafana at <http://localhost:3000> and compare the dashboards:
 
-To stop everything:
+- **Stress Test - Sync**: throughput, server CPU/memory, in-flight requests.
+- **Stress Test - Async**: accepted-request throughput, in-flight requests, queue depth (`rabbitmq_queue_messages`), completed and failed jobs, server and worker CPU/memory.
+- **Jobs (Postgres)**: jobs by status, created and completed per interval.
+- **Stress Testing Observation**: server-side view with in-flight requests, connections and goroutines.
 
-```bash
-docker compose down
-```
-
-Data persists across restarts in the named volumes `prometheus-data`, `grafana-data`, and
-`loki-data`. To wipe Grafana's own state (dashboards/users/datasources) instead of just
-restarting it, remove its volume: `docker volume rm obstainer_grafana-data`.
-
-## How it works
-
-### Metrics: reading cgroups directly
-
-Docker doesn't expose per-container CPU/memory/disk/network/process counts as Prometheus
-metrics out of the box. Rather than run a heavyweight tool like cAdvisor, `cgroup-exporter`
-([monitoring/cgroup-exporter/main.go](monitoring/cgroup-exporter/main.go)) is a small Go program that reads the
-numbers straight from cgroup v2 files:
-
-- **CPU** — `cpu.stat`'s `usage_usec` (cumulative CPU time)
-- **Memory** — `memory.current` (current usage in bytes)
-- **Disk I/O** — `io.stat`'s `rbytes`/`wbytes` summed across devices
-- **Processes** — `pids.current`
-
-It walks `/sys/fs/cgroup` (bind-mounted read-only from the host into `/host/sys/fs/cgroup`)
-looking for directories that look like a container cgroup (either `docker-<64hex>.scope`
-for the systemd cgroup driver, or a bare `<64hex>` directory for the cgroupfs driver), then
-maps each cgroup back to a human-readable container name by querying the Docker socket
-(`/var/run/docker.sock`, mounted read-only).
-
-**Network** is trickier: cgroup v2 has no per-cgroup network accounting. To get it anyway,
-the exporter reads the first PID listed in each container's `cgroup.procs` and looks up that
-PID's `/proc/<pid>/net/dev` (summing `rx`/`tx` bytes across all interfaces except loopback).
-This only works because the exporter runs with `pid: host` in compose.yml — without sharing
-the host PID namespace, it can't resolve real PIDs from other containers' cgroups, and every
-container would read as zero.
-
-The exporter serves everything as plain-text Prometheus metrics on `/metrics`:
-
-- `cgroup_cpu_usage_seconds_total{container_name}` (counter)
-- `cgroup_memory_usage_bytes{container_name}` (gauge)
-- `cgroup_io_read_bytes_total` / `cgroup_io_write_bytes_total` (counters)
-- `cgroup_pids{container_name}` (gauge)
-- `cgroup_network_receive_bytes_total` / `cgroup_network_transmit_bytes_total` (counters)
-
-Prometheus ([monitoring/prometheus/prometheus.yml](monitoring/prometheus/prometheus.yml)) scrapes this endpoint
-every 5 seconds.
-
-### Logs: Docker service discovery
-
-Promtail ([monitoring/promtail/promtail-config.yml](monitoring/promtail/promtail-config.yml)) uses its built-in
-`docker_sd_configs`, polling the Docker socket every 5 seconds to discover every running
-container and stream its stdout/stderr straight into Loki — no log files or extra mounts
-needed for the log content itself. Each log line is labeled with the container name
-(`container`) and stream (`stdout`/`stderr`), which is what the Grafana Logs dashboard
-filters on.
-
-### Grafana dashboards
-
-All dashboards live in [monitoring/grafana/dashboards/](monitoring/grafana/dashboards/) and are auto-provisioned
-(see [monitoring/grafana/provisioning/](monitoring/grafana/provisioning/)) — nothing needs to be imported by hand.
-
-- **CPU Usage**, **Memory Usage**, **Network Usage**, **Disk Usage**, **Number of Processes**
-  — one dashboard per resource type. Each uses a Grafana template variable
-  (`label_values(<metric>, container_name)`) driving a *repeating* panel, so every currently
-  running container automatically gets its own full-width panel, stacked vertically. New
-  containers show up with no dashboard edits required.
-- **Logs** — same repeating-panel pattern, but backed by Loki: one panel per container
-  showing its live log stream.
-- **All Metrics** (`cgroup-metrics.json`) — a single overview dashboard combining CPU,
-  memory, disk I/O, and PID panels side by side for a quick at-a-glance view.
-
-Datasources are provisioned in [monitoring/grafana/provisioning/datasources/](monitoring/grafana/provisioning/datasources/):
-Prometheus is pinned to a fixed `uid: prometheus` (dashboards reference it explicitly), while
-Loki is referenced by datasource `type` only, so it resolves automatically without needing a
-pinned uid.
-
-## Adding a new dashboard/panel
-
-Drop a new dashboard JSON file into `monitoring/grafana/dashboards/` — the `dashboard.yml` provisioning
-provider polls that folder every 10 seconds and picks it up automatically, no Grafana restart
-needed.
+Server metrics worth watching: `server_inflight_requests`, `server_connections{state}`,
+`server_goroutines` and `server_jobs{status}` (read from Postgres at scrape time).
