@@ -150,36 +150,9 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  client:
-    build: ./client
-    container_name: client
-    environment:
-      SERVER_URL: http://server:8080/process-csv-async
-      TOTAL_REQUESTS: "10000"
-      MAX_ITERATIONS: 100
-      METRICS_FILE: /metrics/client.prom
-    volumes:
-      - client-metrics:/metrics
-    depends_on:
-      server:
-        condition: service_healthy
-    ulimits:
-      nofile: { soft: 65536, hard: 65536 }
-
-  client-metrics:
-    build: ./metrics-server
-    container_name: client-metrics
-    environment:
-      METRICS_FILE: /metrics/client.prom
-    volumes:
-      - client-metrics:/metrics:ro
-    ports:
-      - "9465:9465"
-
 volumes:
   tempo-data:
   postgres-data:
-  client-metrics:
   prometheus-data:
   grafana-data:
   loki-data:

@@ -1,6 +1,4 @@
 const http = require("node:http");
-const fs = require("node:fs");
-const path = require("node:path");
 
 // Target endpoint, picked via SERVER_URL:
 //   /process-csv-async -> creates a job and returns its id (202)
@@ -13,19 +11,16 @@ const MAX_ITERATIONS = Number(process.env.MAX_ITERATIONS || 10);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS || 60000);
 // Pause between bursts (submission is fast, so rounds would otherwise run back to back).
 const ROUND_INTERVAL_MS = Number(process.env.ROUND_INTERVAL_MS || 1000);
-const METRICS_FILE = process.env.METRICS_FILE || "/metrics/client.prom";
-const SAMPLE_MS = Number(process.env.SAMPLE_MS || 1000);
 
 const agent = new http.Agent({ keepAlive: true, maxSockets: Infinity });
 
 let inflight = 0;
 let peakInflight = 0;
-let roundsCompleted = 0;
 
-// Cumulative across rounds (Prometheus counters must never decrease).
-//   sent      = submission requests sent
-//   succeeded = submission returned a job id (exported as client_submissions_succeeded_total)
-//   failed    = submission failed, no job was created (exported as client_submissions_failed_total)
+// Cumulative across rounds.
+//   sent      = requests sent
+//   succeeded = request succeeded
+//   failed    = request failed
 const totals = { sent: 0, succeeded: 0, failed: 0 };
 const errorTotals = {};
 
@@ -95,63 +90,14 @@ async function submit() {
   return body;
 }
 
-// The file is an append-only log in Prometheus exposition syntax
-// (`name{labels} value ts_ms`). Each snapshot adds one point per series; the
-// reader groups lines by metric family before serving them.
-function append(lines) {
-  fs.mkdirSync(path.dirname(METRICS_FILE), { recursive: true });
-  fs.appendFileSync(METRICS_FILE, lines.join("\n") + "\n");
-}
-
-// Snapshot of the in-memory counters, taken on a timer.
-function sample() {
-  const ts = ` ${Date.now()}`;
-  append([
-    "# HELP client_requests_sent_total Job submissions sent by the client",
-    "# TYPE client_requests_sent_total counter",
-    `client_requests_sent_total ${totals.sent}${ts}`,
-    "# HELP client_submissions_succeeded_total Job submissions that returned a job id (sync request succeeded)",
-    "# TYPE client_submissions_succeeded_total counter",
-    `client_submissions_succeeded_total ${totals.succeeded}${ts}`,
-    "# HELP client_submissions_failed_total Job submissions that failed (sync request failed)",
-    "# TYPE client_submissions_failed_total counter",
-    `client_submissions_failed_total ${totals.failed}${ts}`,
-    "# HELP client_request_errors_total Failed submissions by error",
-    "# TYPE client_request_errors_total counter",
-    ...Object.entries(errorTotals).map(
-      ([k, v]) => `client_request_errors_total{error=${JSON.stringify(k)}} ${v}${ts}`
-    ),
-    "# HELP client_rounds_completed Rounds completed so far",
-    "# TYPE client_rounds_completed gauge",
-    `client_rounds_completed ${roundsCompleted}${ts}`,
-  ]);
-}
-
-function sampleRoundEnd(durationSec) {
-  const ts = ` ${Date.now()}`;
-  append([
-    "# HELP client_round_duration_seconds Duration of a round's submission burst",
-    "# TYPE client_round_duration_seconds gauge",
-    `client_round_duration_seconds ${durationSec}${ts}`,
-  ]);
-}
-
 let stopped = false;
 process.on("SIGINT", () => { stopped = true; console.log("\nStopping after current batch..."); });
 process.on("SIGTERM", () => { stopped = true; });
 
 const REPORT_MS = Number(process.env.INFLIGHT_REPORT_MS || 1000);
 setInterval(() => console.log(`  inflight=${inflight}`), REPORT_MS).unref();
-setInterval(sample, SAMPLE_MS).unref();
 
 async function main() {
-  // Start each run with a fresh log: leftovers from older runs/formats (e.g.
-  // samples without a timestamp) would make Prometheus reject newer points as
-  // out of order.
-  fs.mkdirSync(path.dirname(METRICS_FILE), { recursive: true });
-  fs.writeFileSync(METRICS_FILE, "");
-  sample(); // baseline point before any load
-
   for (let round = 1; !stopped && round <= MAX_ITERATIONS; round++) {
     const start = Date.now();
     peakInflight = 0;
@@ -178,9 +124,6 @@ async function main() {
     }
 
     const durationSec = (Date.now() - start) / 1000;
-    roundsCompleted = round;
-    sample(); // exact point for the round
-    sampleRoundEnd(durationSec);
 
     console.log(
       `[round ${round}] submitted=${ok} failed=${TOTAL - ok} peakInflight=${peakInflight} time=${durationSec.toFixed(1)}s`
