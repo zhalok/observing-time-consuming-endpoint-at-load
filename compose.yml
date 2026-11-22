@@ -1,7 +1,7 @@
 services:
 
   cgroup-exporter:
-    build: ./cgroup-exporter
+    build: ./monitoring/cgroup-exporter
     container_name: cgroup-exporter
     restart: always
     privileged: true
@@ -18,7 +18,7 @@ services:
     container_name: prometheus
     restart: always
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
       - 9090:9090
@@ -41,7 +41,7 @@ services:
     restart: always
     command: -config.file=/etc/promtail/config.yml
     volumes:
-      - ./promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
@@ -55,8 +55,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
       - 3000:3000
     depends_on:
@@ -69,7 +69,7 @@ services:
     user: root # so the named volume is writable
     command: -config.file=/etc/tempo/tempo.yml
     volumes:
-      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - ./monitoring/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
       - tempo-data:/var/tempo
 
   postgres:
@@ -82,7 +82,7 @@ services:
       POSTGRES_DB: jobs
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./server/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d jobs"]
       interval: 5s
