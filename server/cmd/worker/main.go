@@ -1,12 +1,11 @@
-// Worker consumes export jobs from RabbitMQ. Each consumer takes one job at a
-// time, waits WORK_DURATION (simulating slow work) and marks the job succeeded.
+// Worker consumes jobs from RabbitMQ. Each consumer takes one job at a time,
+// reads the customer CSV, sums its c_acctbal column and marks the job succeeded.
 package main
 
 import (
 	"context"
 	"log"
 	"os"
-	"time"
 
 	"server/internal/jobs"
 	"server/internal/telemetry"
@@ -34,7 +33,7 @@ func main() {
 	}
 
 	n := jobs.EnvInt("CONSUMER_COUNT", 5)
-	if err := queue.StartConsumers(n, store, jobs.EnvDuration("WORK_DURATION", 10*time.Second)); err != nil {
+	if err := queue.StartConsumers(n, store, jobs.CSVPath()); err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("worker started with %d consumers", n)

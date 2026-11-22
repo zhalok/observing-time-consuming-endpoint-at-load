@@ -108,10 +108,13 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/jobs?sslmode=disable
       AMQP_URL: amqp://guest:guest@rabbitmq:5672/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      CSV_PATH: /data/customer.csv
       # TRACE_SAMPLE_RATIO: "1.0"   # lower to sample fewer traces under load
     ports:
       - "8080:8080"
       - "9464:9464"
+    volumes:
+      - ./server/data:/data:ro
     mem_limit: 1g
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
@@ -136,9 +139,11 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/jobs?sslmode=disable
       AMQP_URL: amqp://guest:guest@rabbitmq:5672/
       CONSUMER_COUNT: "5"
-      WORK_DURATION: 10s
+      CSV_PATH: /data/customer.csv
       DB_MAX_CONNS: "10"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+    volumes:
+      - ./server/data:/data:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -149,7 +154,7 @@ services:
     build: ./client
     container_name: client
     environment:
-      SERVER_URL: http://server:8080/export-csv
+      SERVER_URL: http://server:8080/process-csv-async
       TOTAL_REQUESTS: "10000"
       MAX_ITERATIONS: 100
       METRICS_FILE: /metrics/client.prom

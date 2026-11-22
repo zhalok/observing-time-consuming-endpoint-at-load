@@ -2,8 +2,10 @@ package jobs
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
@@ -281,8 +283,8 @@ func (q *Queue) Publish(ctx context.Context, jobID string) error {
 }
 
 // StartConsumers launches n consumers. Each takes one message at a time
-// (prefetch 1), waits `work`, then marks the job succeeded.
-func (q *Queue) StartConsumers(n int, store *Store, work time.Duration) error {
+// (prefetch 1), runs the CSV workload on csvPath, then marks the job succeeded.
+func (q *Queue) StartConsumers(n int, store *Store, csvPath string) error {
 	for i := 1; i <= n; i++ {
 		ch, err := q.conn.Channel()
 		if err != nil {
@@ -309,7 +311,7 @@ func (q *Queue) StartConsumers(n int, store *Store, work time.Duration) error {
 					attribute.String("messaging.destination.name", queueName),
 					attribute.String("messaging.consumer", tag),
 					attribute.String("job.id", id))
-				err := process(ctx, store, id, work)
+				err := process(ctx, store, id, csvPath)
 				end(err)
 				if err != nil {
 					log.Printf("%s: job %s failed: %v (requeue)", tag, id, err)
@@ -324,12 +326,76 @@ func (q *Queue) StartConsumers(n int, store *Store, work time.Duration) error {
 	return nil
 }
 
-func process(ctx context.Context, store *Store, id string, work time.Duration) error {
+func process(ctx context.Context, store *Store, id, csvPath string) error {
 	if err := store.SetStatus(ctx, id, StatusProcessing); err != nil {
 		return err
 	}
-	_, endWork := startSpan(ctx, "do work", trace.SpanKindInternal)
-	time.Sleep(work) // the "time-consuming" part
-	endWork(nil)
+	workCtx, endWork := startSpan(ctx, "do work", trace.SpanKindInternal)
+	total, err := SumAcctBal(workCtx, csvPath)
+	endWork(err)
+	if err != nil {
+		return err
+	}
+	log.Printf("job %s: total c_acctbal = %.2f", id, total)
 	return store.SetStatus(ctx, id, StatusSucceeded)
+}
+
+// ---- Workload ----
+
+// CSVPath is where the customer data lives (override with CSV_PATH).
+func CSVPath() string {
+	if v := os.Getenv("CSV_PATH"); v != "" {
+		return v
+	}
+	return "data/customer.csv"
+}
+
+// SumAcctBal is the workload: read the customer CSV and walk every row,
+// adding up the c_acctbal column.
+func SumAcctBal(ctx context.Context, path string) (float64, error) {
+	_, end := startSpan(ctx, "sum c_acctbal", trace.SpanKindInternal, attribute.String("csv.path", path))
+	total, err := sumAcctBal(path)
+	end(err)
+	return total, err
+}
+
+func sumAcctBal(path string) (float64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	r.ReuseRecord = true
+	header, err := r.Read()
+	if err != nil {
+		return 0, fmt.Errorf("read header: %w", err)
+	}
+	col := -1
+	for i, name := range header {
+		if name == "c_acctbal" {
+			col = i
+			break
+		}
+	}
+	if col < 0 {
+		return 0, errors.New("column c_acctbal not found")
+	}
+
+	var total float64
+	for {
+		rec, err := r.Read()
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		v, err := strconv.ParseFloat(rec[col], 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse c_acctbal %q: %w", rec[col], err)
+		}
+		total += v
+	}
 }

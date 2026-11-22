@@ -174,9 +174,21 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// exportCSV no longer does the work itself: it records a job in Postgres,
-// queues it for the consumers and returns the job id right away.
-func exportCSV(w http.ResponseWriter, r *http.Request) {
+// processCSVSync does the workload directly in the request: it sums c_acctbal
+// over the CSV and returns the total once done.
+func processCSVSync(w http.ResponseWriter, r *http.Request) {
+	total, err := jobs.SumAcctBal(r.Context(), jobs.CSVPath())
+	if err != nil {
+		log.Printf("process csv: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not process csv"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_c_acctbal": total})
+}
+
+// processCSVAsync does not do the work itself: it records a job in Postgres,
+// queues it for the worker and returns the job id right away.
+func processCSVAsync(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -235,7 +247,8 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /export-csv", exportCSV)
+	mux.HandleFunc("GET /process-csv-async", processCSVAsync)
+	mux.HandleFunc("GET /process-csv-sync", processCSVSync)
 	mux.HandleFunc("GET /healthz", healthz)
 
 	port := os.Getenv("PORT")
@@ -247,7 +260,11 @@ func main() {
 	// Trace job submissions only; health checks are frequent and uninteresting.
 	traced := otelhttp.NewHandler(mux, "http",
 		otelhttp.WithFilter(func(r *http.Request) bool {
-			return r.URL.Path == "/export-csv"
+			return r.URL.Path == "/process-csv-async" || r.URL.Path == "/process-csv-sync"
+		}),
+		// Label the request metrics with the path so async and sync latency can be told apart.
+		otelhttp.WithMetricAttributesFn(func(r *http.Request) []attribute.KeyValue {
+			return []attribute.KeyValue{attribute.String("http.route", r.URL.Path)}
 		}),
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return r.Method + " " + r.URL.Path

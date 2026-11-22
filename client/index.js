@@ -2,9 +2,12 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-// Submit endpoint: creates a job and returns its id. Job completion/failure
-// stats are not measured here: the server reads them from the database.
-const URL_ = process.env.SERVER_URL || "http://localhost:8080/export-csv";
+// Target endpoint, picked via SERVER_URL:
+//   /process-csv-async -> creates a job and returns its id (202)
+//   /process-csv-sync  -> does the work in the request and returns the total (200)
+// Job completion/failure stats are not measured here: the server reads them
+// from the database.
+const URL_ = process.env.SERVER_URL || "http://localhost:8080/process-csv-async";
 const TOTAL = Number(process.env.TOTAL_REQUESTS || 10000);
 const MAX_ITERATIONS = Number(process.env.MAX_ITERATIONS || 10);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS || 60000);
@@ -82,13 +85,14 @@ function describeError(err) {
   return parts.join(" ");
 }
 
-// API call: create a job. Resolves with its id, rejects if the submission
-// failed. Does not touch any counters; main() records the outcome.
+// API call: hit the endpoint. Resolves on success (async: a job id came back,
+// sync: the total came back), rejects otherwise. Does not touch any counters;
+// main() records the outcome.
 async function submit() {
   totals.sent++; // counted when the request is sent, so the metric moves during the burst
   const body = await getJSON(URL_);
-  if (!body.job_id) throw new Error("no job_id");
-  return body.job_id;
+  if (!body.job_id && body.total_c_acctbal === undefined) throw new Error("unexpected response");
+  return body;
 }
 
 // The file is an append-only log in Prometheus exposition syntax
