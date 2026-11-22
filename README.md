@@ -74,6 +74,27 @@ Details:
 | Under overload          | Server slows down, may fail       | Queue grows, jobs wait                     |
 | Result                  | In the response                   | Job status in Postgres                     |
 
+## Results
+
+Grafana captures from a stress run against each endpoint.
+
+### Sync
+
+![Sync stress test results](monitoring/sync-stress-test-result.png)
+
+The work runs inside the server, so load shows up on the server itself: CPU stays pinned
+at about 5 cores, memory swings between roughly 90 and 225 MiB, throughput peaks around
+35 req/s, and in-flight requests spike to nearly 1000.
+
+### Async
+
+![Async stress test results](monitoring/async-stress-test-results.png)
+
+The server only inserts a row and publishes a message, so its CPU stays low (peak about 0.11)
+and memory flat (about 85-100 MiB), with in-flight requests staying at 0. Accepted-request
+throughput peaks around 50 req/s. The backlog builds in RabbitMQ (up to about 3000 messages)
+and drains steadily while the worker, bounded by its consumer count, runs at about 3 cores.
+
 ## Services
 
 All wired together in [compose.yml](compose.yml).
